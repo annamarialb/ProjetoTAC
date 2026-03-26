@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  catalog:
+    build:
+      context: ./services/catalog
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - postgres
+    networks:
+      - plataforma-network
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=senha123
+      - POSTGRES_DB=plataforma_pedidos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - plataforma-network
+
+networks:
+  plataforma-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
