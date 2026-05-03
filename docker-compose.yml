@@ -33,9 +33,38 @@ services:
       - "3002:3002"
     environment:
       - CATALOG_URL=http://catalog:3001
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
       - NODE_ENV=production
     depends_on:
       - catalog
+      - rabbitmq
+    networks:
+      - plataforma-network
+
+  notifications:
+    build:
+      context: ./services/notifications
+      dockerfile: Dockerfile
+    ports:
+      - "3003:3003"
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - NODE_ENV=production
+    depends_on:
+      - rabbitmq
+    networks:
+      - plataforma-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
     networks:
       - plataforma-network
 
@@ -58,3 +87,4 @@ networks:
 
 volumes:
   postgres-data:
+  rabbitmq-data:
