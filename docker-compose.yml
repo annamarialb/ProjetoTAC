@@ -1,6 +1,19 @@
-version: '3.8'
-
 services:
+  gateway:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - CATALOG_URL=http://catalog:3001
+      - ORDERS_URL=http://orders:3002
+    depends_on:
+      - catalog
+      - orders
+    networks:
+      - plataforma-network
+
   catalog:
     build:
       context: ./services/catalog
@@ -9,8 +22,20 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
+    networks:
+      - plataforma-network
+
+  orders:
+    build:
+      context: ./services/orders
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+      - CATALOG_URL=http://catalog:3001
+      - NODE_ENV=production
     depends_on:
-      - postgres
+      - catalog
     networks:
       - plataforma-network
 
