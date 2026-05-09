@@ -34,10 +34,12 @@ services:
     environment:
       - CATALOG_URL=http://catalog:3001
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - PG_CONNECTION=postgresql://admin:senha123@postgres:5432/plataforma_pedidos
       - NODE_ENV=production
     depends_on:
       - catalog
       - rabbitmq
+      - postgres
     networks:
       - plataforma-network
 
@@ -49,9 +51,11 @@ services:
       - "3003:3003"
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - PG_CONNECTION=postgresql://admin:senha123@postgres:5432/plataforma_pedidos
       - NODE_ENV=production
     depends_on:
       - rabbitmq
+      - postgres
     networks:
       - plataforma-network
 

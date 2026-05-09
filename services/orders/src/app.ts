@@ -1,13 +1,16 @@
 import express from 'express';
 import amqplib from 'amqplib';
+import { Pool } from 'pg';
 
 const app = express();
 app.use(express.json());
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672';
+const PG_CONNECTION = process.env.PG_CONNECTION || 'postgresql://admin:senha123@localhost:5432/plataforma_pedidos';
+
+const pool = new Pool({ connectionString: PG_CONNECTION });
 let channel: amqplib.Channel | null = null;
 
-// Conecta ao RabbitMQ com retry
 async function conectarRabbitMQ(tentativa = 1): Promise<void> {
   try {
     console.log(`🔌 Conectando ao RabbitMQ (tentativa ${tentativa})...`);
@@ -26,7 +29,6 @@ async function conectarRabbitMQ(tentativa = 1): Promise<void> {
   }
 }
 
-// Publica evento no RabbitMQ
 async function publicarPedidoCriado(pedido: object): Promise<void> {
   if (!channel) {
     console.warn('⚠️ Canal RabbitMQ não disponível');
@@ -45,12 +47,64 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', service: 'orders' });
 });
 
-// Rota para listar pedidos
-app.get('/api/v1/pedidos', (req, res) => {
-  res.status(200).json([]);
+// QUERY — Listar todos os pedidos (Read Model)
+app.get('/api/v1/pedidos', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT p.id, p.usuario_id, p.status, p.total, p.criado_em,
+              json_agg(json_build_object(
+                'produtoId', i.produto_id,
+                'nomeProduto', i.nome_produto,
+                'quantidade', i.quantidade,
+                'precoUnitario', i.preco_unitario
+              )) as itens
+       FROM pedidos_read_model p
+       LEFT JOIN itens_read_model i ON i.pedido_id = p.id
+       GROUP BY p.id, p.usuario_id, p.status, p.total, p.criado_em
+       ORDER BY p.criado_em DESC`
+    );
+    res.status(200).json(result.rows);
+  } catch (error) {
+    res.status(500).json({ detail: 'Erro ao consultar pedidos' });
+  }
 });
 
-// Rota para criar pedido
+// QUERY — Buscar pedido por ID (Read Model)
+app.get('/api/v1/pedidos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT p.id, p.usuario_id, p.status, p.total, p.criado_em,
+              json_agg(json_build_object(
+                'produtoId', i.produto_id,
+                'nomeProduto', i.nome_produto,
+                'quantidade', i.quantidade,
+                'precoUnitario', i.preco_unitario
+              )) as itens
+       FROM pedidos_read_model p
+       LEFT JOIN itens_read_model i ON i.pedido_id = p.id
+       WHERE p.id = $1
+       GROUP BY p.id, p.usuario_id, p.status, p.total, p.criado_em`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({
+        type: 'https://example.com/erros/pedido-nao-encontrado',
+        title: 'Pedido não encontrado',
+        status: 404,
+        detail: `Não existe pedido com o ID ${id}`
+      });
+      return;
+    }
+
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ detail: 'Erro ao consultar pedido' });
+  }
+});
+
+// COMMAND — Criar pedido (Write Side)
 app.post('/api/v1/pedidos', async (req, res) => {
   const { usuarioId, produtoId, quantidade } = req.body;
 
@@ -84,19 +138,17 @@ app.post('/api/v1/pedidos', async (req, res) => {
       id: crypto.randomUUID(),
       usuarioId,
       status: 'confirmado',
-      itens: [
-        {
-          produtoId,
-          nomeProduto: produto.nome,
-          quantidade,
-          precoUnitario: produto.preco
-        }
-      ],
+      itens: [{
+        produtoId,
+        nomeProduto: produto.nome,
+        quantidade,
+        precoUnitario: produto.preco
+      }],
       total: produto.preco * quantidade,
       criadoEm: new Date().toISOString()
     };
 
-    // Publica evento no RabbitMQ
+    // Publica evento no RabbitMQ (notificações + projeção no Read Model)
     await publicarPedidoCriado(pedido);
 
     res.status(201).json(pedido);
@@ -111,7 +163,6 @@ app.post('/api/v1/pedidos', async (req, res) => {
   }
 });
 
-// Inicia conexão com RabbitMQ
 conectarRabbitMQ().catch(console.error);
 
 export default app;
