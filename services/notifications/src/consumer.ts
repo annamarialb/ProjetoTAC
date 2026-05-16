@@ -1,5 +1,6 @@
 import * as amqplib from 'amqplib';
 import { Pool } from 'pg';
+import { io } from './server';
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672';
 const PG_CONNECTION = process.env.PG_CONNECTION || 'postgresql://admin:senha123@localhost:5432/plataforma_pedidos';
@@ -8,7 +9,7 @@ const pool = new Pool({ connectionString: PG_CONNECTION });
 
 async function conectar(tentativa = 1): Promise<amqplib.ChannelModel> {
   try {
-    console.log(`Tentando conectar ao RabbitMQ (tentativa ${tentativa})...`);
+    console.log('Tentando conectar ao RabbitMQ (tentativa ' + tentativa + ')...');
     const connection = await amqplib.connect(RABBITMQ_URL);
     console.log('Conectado ao RabbitMQ!');
     return connection;
@@ -50,19 +51,29 @@ async function projetarPedido(pedido: any): Promise<void> {
   }
 }
 
+async function atualizarStatusReadModel(pedidoId: string, novoStatus: string): Promise<void> {
+  await pool.query(
+    'UPDATE pedidos_read_model SET status = $1 WHERE id = $2',
+    [novoStatus, pedidoId]
+  );
+  console.log('Read Model atualizado: pedido ' + pedidoId + ' -> ' + novoStatus);
+}
+
 export async function iniciarConsumer(): Promise<void> {
   const connection = await conectar();
   const channel = await connection.createChannel();
-  const exchange = 'pedido-criado-exchange';
-  const queue = 'notifications-pedido-criado';
-  await channel.assertExchange(exchange, 'fanout', { durable: true });
-  await channel.assertQueue(queue, { durable: true });
-  await channel.bindQueue(queue, exchange, '');
-  console.log('Aguardando mensagens na fila: ' + queue);
-  channel.consume(queue, async (msg: amqplib.ConsumeMessage | null) => {
+
+  var exchangeCriado = 'pedido-criado-exchange';
+  var queueCriado = 'notifications-pedido-criado';
+  await channel.assertExchange(exchangeCriado, 'fanout', { durable: true });
+  await channel.assertQueue(queueCriado, { durable: true });
+  await channel.bindQueue(queueCriado, exchangeCriado, '');
+  console.log('Aguardando mensagens na fila: ' + queueCriado);
+
+  channel.consume(queueCriado, async (msg: amqplib.ConsumeMessage | null) => {
     if (!msg) return;
     try {
-      const evento = JSON.parse(msg.content.toString());
+      var evento = JSON.parse(msg.content.toString());
       console.log('[E-MAIL SIMULADO] Para: ' + evento.usuarioId);
       console.log('Pedido ID: ' + evento.id);
       console.log('Total: R$ ' + evento.total);
@@ -70,6 +81,38 @@ export async function iniciarConsumer(): Promise<void> {
       channel.ack(msg);
     } catch (error) {
       console.error('Erro ao processar mensagem:', error);
+      channel.nack(msg, false, false);
+    }
+  });
+
+  var exchangeStatus = 'pedido-status-alterado-exchange';
+  var queueStatus = 'notifications-pedido-status';
+  await channel.assertExchange(exchangeStatus, 'fanout', { durable: true });
+  await channel.assertQueue(queueStatus, { durable: true });
+  await channel.bindQueue(queueStatus, exchangeStatus, '');
+  console.log('Aguardando mensagens na fila: ' + queueStatus);
+
+  channel.consume(queueStatus, async (msg: amqplib.ConsumeMessage | null) => {
+    if (!msg) return;
+    try {
+      var evento = JSON.parse(msg.content.toString());
+      console.log('StatusAlterado recebido: pedido ' + evento.pedidoId + ' -> ' + evento.novoStatus);
+
+      await atualizarStatusReadModel(evento.pedidoId, evento.novoStatus);
+
+      var room = 'pedido:' + evento.pedidoId;
+      io.to(room).emit('StatusAtualizado', {
+        pedidoId: evento.pedidoId,
+        status: evento.novoStatus,
+        statusAnterior: evento.statusAnterior,
+        alteradoEm: evento.alteradoEm,
+        observacao: evento.observacao || null
+      });
+
+      console.log('Notificacao enviada via WebSocket para room ' + room);
+      channel.ack(msg);
+    } catch (error) {
+      console.error('Erro ao processar status:', error);
       channel.nack(msg, false, false);
     }
   });
