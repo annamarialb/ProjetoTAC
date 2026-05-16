@@ -13,7 +13,6 @@ services:
       - orders
     networks:
       - plataforma-network
-
   catalog:
     build:
       context: ./services/catalog
@@ -22,9 +21,12 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
+      - REDIS_URL=redis://:redissenha123@redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - plataforma-network
-
   orders:
     build:
       context: ./services/orders
@@ -42,7 +44,6 @@ services:
       - postgres
     networks:
       - plataforma-network
-
   notifications:
     build:
       context: ./services/notifications
@@ -58,7 +59,6 @@ services:
       - postgres
     networks:
       - plataforma-network
-
   rabbitmq:
     image: rabbitmq:3-management
     ports:
@@ -71,7 +71,6 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
       - plataforma-network
-
   postgres:
     image: postgres:15-alpine
     environment:
@@ -84,11 +83,25 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - plataforma-network
-
+  redis:
+    image: redis:7-alpine
+    container_name: gestaopedidos-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --requirepass redissenha123
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redissenha123", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - plataforma-network
 networks:
   plataforma-network:
     driver: bridge
-
 volumes:
   postgres-data:
   rabbitmq-data:
+  redis-data:
