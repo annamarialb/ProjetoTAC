@@ -5,6 +5,7 @@ import logger from './infrastructure/logging/logger';
 import healthRouter from './infrastructure/health/healthChecks';
 import { metricsRouter, metricsMiddleware, pedidosCriados, statusAlterados, latenciaCriacao } from './infrastructure/metrics/metrics';
 import { resilientFetch } from './infrastructure/resilience/resilientFetch';
+import versionRouter from './infrastructure/version';
 
 var app = express();
 app.use(express.json());
@@ -55,6 +56,7 @@ async function publicarStatusAlterado(evento: any): Promise<void> {
 
 // Rotas de saude e metricas
 app.use(healthRouter);
+app.use(versionRouter);
 app.use(metricsRouter);
 
 // QUERY - Listar pedidos
