@@ -1,0 +1,86 @@
+name: CI - Plataforma Pedidos
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+jobs:
+  catalog-ci:
+    name: Catalog - Build e Testes
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 5
+    defaults:
+      run:
+        working-directory: services/catalog
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/catalog/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Build TypeScript
+        run: npx tsc --noEmit
+      - name: Testes unitarios
+        run: npx jest --verbose --testPathPatterns="Produto.test|CriarProduto.test|ProdutosApi.test"
+      - name: Testes de integracao (Redis)
+        run: npx jest --verbose --testPathPatterns="ProdutoCacheService"
+        env:
+          REDIS_URL: redis://localhost:6379
+
+  orders-ci:
+    name: Orders - Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/orders
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/orders/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Build TypeScript
+        run: npx tsc --noEmit
+
+  notifications-ci:
+    name: Notifications - Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/notifications
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/notifications/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Build TypeScript
+        run: npx tsc --noEmit
+
+  docker-build:
+    name: Docker - Build de todos os servicos
+    runs-on: ubuntu-latest
+    needs: [catalog-ci, orders-ci, notifications-ci]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker Compose
+        run: docker compose build
